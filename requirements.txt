@@ -1,7 +1,5 @@
 streamlit
-os
-sqlite3
+tensorflow
+keras
+pillow
 numpy
-load_model
-Image, ImageOps
-datetime
