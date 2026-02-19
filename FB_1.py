@@ -5,18 +5,12 @@ import numpy as np
 from keras.models import load_model
 from PIL import Image, ImageOps
 from datetime import datetime
+
 # ==============================
-# Streamlit UI
+# Streamlit Grundeinstellung (MUSS ganz oben stehen!)
 # ==============================
 
 st.set_page_config(page_title="Schul-Fundbüro", layout="wide")
-
-st.title("Digitales Schul-Fundbüro")
-
-# Sidebar Navigation
-menu = st.sidebar.selectbox(
-    "Navigation",
-    ["Finder (Upload)", "Verloren & Suchen", "Admin"]
 
 # ==============================
 # Konfiguration
@@ -26,17 +20,15 @@ MODEL_PATH = "keras_Model.h5"
 LABELS_PATH = "labels.txt"
 IMAGE_FOLDER = "images"
 DB_PATH = "fundbuero.db"
-ADMIN_PASSWORD = "admin123"  # Hier kannst du das Passwort ändern
+ADMIN_PASSWORD = "admin123"
 
 # ==============================
 # Initialisierung
 # ==============================
 
-# Ordner erstellen
 if not os.path.exists(IMAGE_FOLDER):
     os.makedirs(IMAGE_FOLDER)
 
-# Datenbank initialisieren
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -101,7 +93,8 @@ def insert_item(filename, category, confidence):
     c.execute("""
         INSERT INTO items (filename, category, confidence, upload_date)
         VALUES (?, ?, ?, ?)
-    """, (filename, category, confidence, datetime.now().strftime("%d.%m.%Y %H:%M")))
+    """, (filename, category, confidence,
+          datetime.now().strftime("%d.%m.%Y %H:%M")))
     conn.commit()
     conn.close()
 
@@ -140,7 +133,15 @@ def get_total_count():
     conn.close()
     return count
 
+# ==============================
+# Streamlit UI
+# ==============================
 
+st.title("Digitales Schul-Fundbüro")
+
+menu = st.sidebar.selectbox(
+    "Navigation",
+    ["Finder (Upload)", "Verloren & Suchen", "Admin"]
 )
 
 # ==============================
@@ -150,7 +151,9 @@ def get_total_count():
 if menu == "Finder (Upload)":
     st.header("Gegenstand hochladen")
 
-    uploaded_file = st.file_uploader("Bild hochladen", type=["jpg", "jpeg", "png"])
+    uploaded_file = st.file_uploader(
+        "Bild hochladen", type=["jpg", "jpeg", "png"]
+    )
 
     if uploaded_file is not None and model is not None:
         image = Image.open(uploaded_file).convert("RGB")
@@ -162,7 +165,6 @@ if menu == "Finder (Upload)":
 
             confidence_percent = round(confidence * 100, 2)
 
-            # Eindeutiger Dateiname
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"{timestamp}.jpg"
             image.save(os.path.join(IMAGE_FOLDER, filename))
@@ -180,7 +182,9 @@ if menu == "Finder (Upload)":
 elif menu == "Verloren & Suchen":
     st.header("Nach Gegenständen suchen")
 
-    st.write(f"Gesamtzahl gespeicherter Gegenstände: **{get_total_count()}**")
+    st.write(
+        f"Gesamtzahl gespeicherter Gegenstände: **{get_total_count()}**"
+    )
 
     categories = [name.strip() for name in class_names] if class_names else []
     selected_category = st.selectbox("Kategorie auswählen", categories)
@@ -196,7 +200,7 @@ elif menu == "Verloren & Suchen":
                     width=300
                 )
         else:
-            st.info("Keine Gegenstände in dieser Kategorie gefunden.")
+            st.info("Keine Gegenstände gefunden.")
 
 # ==============================
 # 3. Admin-Seite
@@ -230,3 +234,4 @@ elif menu == "Admin":
 
     elif password != "":
         st.error("Falsches Passwort.")
+
