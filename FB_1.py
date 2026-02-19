@@ -5,6 +5,18 @@ import numpy as np
 from keras.models import load_model
 from PIL import Image, ImageOps
 from datetime import datetime
+# ==============================
+# Streamlit UI
+# ==============================
+
+st.set_page_config(page_title="Schul-Fundbüro", layout="wide")
+
+st.title("Digitales Schul-Fundbüro")
+
+# Sidebar Navigation
+menu = st.sidebar.selectbox(
+    "Navigation",
+    ["Finder (Upload)", "Verloren & Suchen", "Admin"]
 
 # ==============================
 # Konfiguration
@@ -128,18 +140,7 @@ def get_total_count():
     conn.close()
     return count
 
-# ==============================
-# Streamlit UI
-# ==============================
 
-st.set_page_config(page_title="Schul-Fundbüro", layout="wide")
-
-st.title("Digitales Schul-Fundbüro")
-
-# Sidebar Navigation
-menu = st.sidebar.selectbox(
-    "Navigation",
-    ["Finder (Upload)", "Verloren & Suchen", "Admin"]
 )
 
 # ==============================
