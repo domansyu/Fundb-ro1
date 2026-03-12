@@ -16,7 +16,7 @@ st.set_page_config(page_title="Schul-Fundbüro", layout="wide")
 # Supabase Konfiguration
 # ==============================
 
-SUPABASE_URL = "DEINE_URL"
+SUPABASE_URL = "https://dvjerwzwplmlychhbzlr.supabase.co"
 SUPABASE_KEY = "DEIN_ANON_KEY"
 BUCKET_NAME = "item-images"
 
