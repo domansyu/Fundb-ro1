@@ -1,50 +1,34 @@
 import streamlit as st
 import os
-import sqlite3
 import numpy as np
 from keras.models import load_model
 from PIL import Image, ImageOps
 from datetime import datetime
+from supabase import create_client
 
 # ==============================
-# Streamlit Grundeinstellung (MUSS ganz oben stehen!)
+# Streamlit Setup
 # ==============================
 
 st.set_page_config(page_title="Schul-Fundbüro", layout="wide")
 
 # ==============================
-# Konfiguration
+# Supabase Konfiguration
+# ==============================
+
+SUPABASE_URL = "DEINE_URL"
+SUPABASE_KEY = "DEIN_ANON_KEY"
+BUCKET_NAME = "item-images"
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ==============================
+# KI Modell
 # ==============================
 
 MODEL_PATH = "keras_Model.h5"
 LABELS_PATH = "labels.txt"
-IMAGE_FOLDER = "images"
-DB_PATH = "fundbuero.db"
 ADMIN_PASSWORD = "admin123"
-
-# ==============================
-# Initialisierung
-# ==============================
-
-if not os.path.exists(IMAGE_FOLDER):
-    os.makedirs(IMAGE_FOLDER)
-
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            filename TEXT,
-            category TEXT,
-            confidence REAL,
-            upload_date TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-init_db()
 
 # ==============================
 # Modell laden
@@ -52,21 +36,18 @@ init_db()
 
 @st.cache_resource
 def load_ai_model():
-    try:
-        model = load_model(MODEL_PATH, compile=False)
-        class_names = open(LABELS_PATH, "r").readlines()
-        return model, class_names
-    except Exception as e:
-        st.error(f"Fehler beim Laden des Modells: {e}")
-        return None, None
+    model = load_model(MODEL_PATH, compile=False)
+    class_names = open(LABELS_PATH, "r").readlines()
+    return model, class_names
 
 model, class_names = load_ai_model()
 
 # ==============================
-# KI-Vorhersage
+# KI Vorhersage
 # ==============================
 
 def predict_image(image):
+
     data = np.ndarray(shape=(1, 224, 224, 3), dtype=np.float32)
 
     size = (224, 224)
@@ -78,60 +59,62 @@ def predict_image(image):
 
     prediction = model.predict(data)
     index = np.argmax(prediction)
+
     class_name = class_names[index].strip()
     confidence_score = float(prediction[0][index])
 
     return class_name, confidence_score
 
 # ==============================
-# Datenbankfunktionen
+# Supabase Funktionen
 # ==============================
 
 def insert_item(filename, category, confidence):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        INSERT INTO items (filename, category, confidence, upload_date)
-        VALUES (?, ?, ?, ?)
-    """, (filename, category, confidence,
-          datetime.now().strftime("%d.%m.%Y %H:%M")))
-    conn.commit()
-    conn.close()
+
+    supabase.table("items").insert({
+        "filename": filename,
+        "category": category,
+        "confidence": confidence,
+        "upload_date": datetime.now().strftime("%d.%m.%Y %H:%M")
+    }).execute()
+
 
 def get_items_by_category(category):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT * FROM items WHERE category=?", (category,))
-    items = c.fetchall()
-    conn.close()
-    return items
+
+    data = supabase.table("items") \
+        .select("*") \
+        .eq("category", category) \
+        .execute()
+
+    return data.data
+
 
 def get_all_items():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT * FROM items")
-    items = c.fetchall()
-    conn.close()
-    return items
+
+    data = supabase.table("items") \
+        .select("*") \
+        .execute()
+
+    return data.data
+
 
 def delete_item(item_id, filename):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("DELETE FROM items WHERE id=?", (item_id,))
-    conn.commit()
-    conn.close()
 
-    image_path = os.path.join(IMAGE_FOLDER, filename)
-    if os.path.exists(image_path):
-        os.remove(image_path)
+    supabase.table("items") \
+        .delete() \
+        .eq("id", item_id) \
+        .execute()
+
+    supabase.storage.from_(BUCKET_NAME).remove([filename])
+
 
 def get_total_count():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM items")
-    count = c.fetchone()[0]
-    conn.close()
-    return count
+
+    data = supabase.table("items") \
+        .select("id") \
+        .execute()
+
+    return len(data.data)
 
 # ==============================
 # Streamlit UI
@@ -145,91 +128,121 @@ menu = st.sidebar.selectbox(
 )
 
 # ==============================
-# 1. Upload-Seite
+# Upload
 # ==============================
 
 if menu == "Finder (Upload)":
+
     st.header("Gegenstand hochladen")
 
     uploaded_file = st.file_uploader(
         "Bild hochladen", type=["jpg", "jpeg", "png"]
     )
 
-    if uploaded_file is not None and model is not None:
+    if uploaded_file is not None:
+
         image = Image.open(uploaded_file).convert("RGB")
-        st.image(image, caption="Hochgeladenes Bild", width=300)
+        st.image(image, width=300)
 
         if st.button("Klassifizieren und speichern"):
-            with st.spinner("KI analysiert das Bild..."):
+
+            with st.spinner("KI analysiert Bild..."):
+
                 category, confidence = predict_image(image)
 
             confidence_percent = round(confidence * 100, 2)
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"{timestamp}.jpg"
-            image.save(os.path.join(IMAGE_FOLDER, filename))
+
+            # Bild in Bytes konvertieren
+            from io import BytesIO
+            buffer = BytesIO()
+            image.save(buffer, format="JPEG")
+
+            # Upload zu Supabase Storage
+            supabase.storage.from_(BUCKET_NAME).upload(
+                filename,
+                buffer.getvalue()
+            )
 
             insert_item(filename, category, confidence_percent)
 
-            st.success("Gegenstand erfolgreich gespeichert!")
-            st.write(f"**Kategorie:** {category}")
-            st.write(f"**Konfidenz:** {confidence_percent}%")
+            st.success("Gegenstand gespeichert!")
+
+            st.write(f"Kategorie: {category}")
+            st.write(f"Konfidenz: {confidence_percent}%")
 
 # ==============================
-# 2. Such-Seite
+# Suche
 # ==============================
 
 elif menu == "Verloren & Suchen":
+
     st.header("Nach Gegenständen suchen")
 
     st.write(
         f"Gesamtzahl gespeicherter Gegenstände: **{get_total_count()}**"
     )
 
-    categories = [name.strip() for name in class_names] if class_names else []
+    categories = [name.strip() for name in class_names]
     selected_category = st.selectbox("Kategorie auswählen", categories)
 
     if selected_category:
+
         items = get_items_by_category(selected_category)
 
         if items:
+
             for item in items:
+
+                image_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{item['filename']}"
+
                 st.image(
-                    os.path.join(IMAGE_FOLDER, item[1]),
-                    caption=f"{item[2]} | {item[3]}% | {item[4]}",
+                    image_url,
+                    caption=f"{item['category']} | {item['confidence']}% | {item['upload_date']}",
                     width=300
                 )
+
         else:
+
             st.info("Keine Gegenstände gefunden.")
 
 # ==============================
-# 3. Admin-Seite
+# Admin
 # ==============================
 
 elif menu == "Admin":
+
     st.header("Admin-Bereich")
 
-    password = st.text_input("Passwort eingeben", type="password")
+    password = st.text_input("Passwort", type="password")
 
     if password == ADMIN_PASSWORD:
-        st.success("Zugriff gewährt")
 
         items = get_all_items()
 
         for item in items:
-            col1, col2 = st.columns([3, 1])
+
+            col1, col2 = st.columns([3,1])
+
+            image_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{item['filename']}"
 
             with col1:
+
                 st.image(
-                    os.path.join(IMAGE_FOLDER, item[1]),
-                    caption=f"{item[2]} | {item[3]}% | {item[4]}",
+                    image_url,
+                    caption=f"{item['category']} | {item['confidence']}% | {item['upload_date']}",
                     width=250
                 )
 
             with col2:
-                if st.button(f"Löschen ID {item[0]}"):
-                    delete_item(item[0], item[1])
-                    st.warning("Eintrag gelöscht.")
+
+                if st.button(f"Löschen {item['id']}"):
+
+                    delete_item(item["id"], item["filename"])
+
+                    st.warning("Eintrag gelöscht")
                     st.rerun()
 
     elif password != "":
