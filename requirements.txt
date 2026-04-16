@@ -1,9 +1,6 @@
-streamlit==1.32.2
+streamlit==1.33.0
 numpy==1.26.4
-pillow==10.2.0
-supabase==2.4.0
-keras==2.15.0
+pillow==10.3.0
 tensorflow==2.15.0
-protobuf==4.25.3
-requests==2.31.0
-python-dateutil==2.8.2
+keras==2.15.0
+supabase==2.4.0
